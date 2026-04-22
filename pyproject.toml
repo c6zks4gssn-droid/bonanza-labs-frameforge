@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bonanza-labs-frameforge"
+version = "0.1.0"
+description = "🎬 FrameForge — AI Video Generator. Script → Voiceover → Video. Powered by Remotion + Edge-TTS."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [{name = "Bonanza Labs", email = "passiveassets@proton.me"}]
+keywords = ["ai", "video", "remotion", "tts", "voiceover", "bonanza"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "click>=8.0",
+    "edge-tts>=6.1",
+    "rich>=13.0",
+]
+
+[project.scripts]
+frameforge = "frameforge.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.urls]
+Homepage = "https://bonanza-labs.tiiny.site"
+Repository = "https://github.com/c6zks4gssn-droid/bonanza-labs-frameforge"
