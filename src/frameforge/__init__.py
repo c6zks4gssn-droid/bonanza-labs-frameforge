@@ -18,6 +18,8 @@ import sys
 import time
 from pathlib import Path
 
+from frameforge.voicebox import generate_voiceover as vb_generate_voiceover, is_voicebox_available, list_voices
+
 WORKSPACE = Path.home() / ".openclaw/workspace"
 REMONDIR = WORKSPACE / "frameforge-remotion"
 OUTPUT_DIR = WORKSPACE / "frameforge" / "output"
@@ -27,14 +29,7 @@ VOICE_DIR.mkdir(parents=True, exist_ok=True)
 
 STYLES = ["viral", "corporate", "product", "explainer"]
 FORMATS = {"16:9": (1920, 1080), "9:16": (1080, 1920), "1:1": (1080, 1080)}
-VOICE_MAP = {
-    "af_heart": "en-US-AriaNeural",
-    "af_nicole": "en-US-JennyNeural",
-    "am_adam": "en-US-GuyNeural",
-    "am_michael": "en-US-ChristopherNeural",
-    "bf_emma": "en-GB-SoniaNeural",
-    "bm_george": "en-GB-ThomasNeural",
-}
+ENGINES = ["auto", "voicebox", "kokoro", "edge"]
 
 
 def run(cmd, timeout=300):
@@ -61,8 +56,8 @@ def generate_script(topic, style="viral"):
     return scenes
 
 
-def generate_voiceover(scenes, voice_preset="af_nicole", output_path=None):
-    """Generate voiceover audio using edge-tts (or VibeVoice)."""
+def generate_voiceover(scenes, voice_preset="af_nicole", output_path=None, clone_ref=None, engine="auto", speed=1.0):
+    """Generate voiceover using Voicebox/Kokoro with Edge-TTS fallback."""
     if not output_path:
         output_path = str(VOICE_DIR / f"voiceover_{int(time.time())}.mp3")
 
@@ -81,17 +76,19 @@ def generate_voiceover(scenes, voice_preset="af_nicole", output_path=None):
             narration_parts.append(f"{s['title']}. {s['subtitle']}.")
 
     narration = " ... ".join(narration_parts)
-    edge_voice = VOICE_MAP.get(voice_preset, "en-US-JennyNeural")
-
-    rc, out = run(f'edge-tts --voice "{edge_voice}" --text "{narration}" --write-media "{output_path}"', timeout=60)
-    if rc == 0 and os.path.exists(output_path):
-        # Enhance audio
-        enhanced = output_path.replace(".mp3", "_hq.m4a")
-        run(f'ffmpeg -y -i "{output_path}" -af "aresample=48000,highpass=f=100,treble=g=6,volume=1.5" -ar 48000 -ac 2 -c:a aac -b:a 128k "{enhanced}"', timeout=30)
-        if os.path.exists(enhanced):
-            os.replace(enhanced, output_path)
-        return output_path
-    return None
+    
+    engine_label = {"auto": "auto (Voicebox → Kokoro → Edge)", "voicebox": "Voicebox", "kokoro": "Kokoro", "edge": "Edge-TTS"}.get(engine, engine)
+    print(f"   Engine: {engine_label}")
+    
+    result = vb_generate_voiceover(
+        text=narration,
+        voice=voice_preset,
+        output_path=output_path,
+        clone_ref=clone_ref,
+        engine=engine,
+        speed=speed,
+    )
+    return result
 
 
 def render_remotion(scenes, style, fmt, voiceover_path=None, output_path=None):
@@ -135,11 +132,11 @@ def render_remotion(scenes, style, fmt, voiceover_path=None, output_path=None):
         return None
 
 
-def create_video(topic, style="viral", fmt="16:9", voice="af_nicole", clone_voice=None):
+def create_video(topic, style="viral", fmt="16:9", voice="af_nicole", clone_voice=None, engine="auto", speed=1.0):
     """Full pipeline: script → voice → video."""
     print(f"🎬 FrameForge Pro — Creating video")
     print(f"   Topic: {topic}")
-    print(f"   Style: {style} | Format: {fmt} | Voice: {voice}")
+    print(f"   Style: {style} | Format: {fmt} | Voice: {voice} | Engine: {engine}")
 
     # 1. Generate script
     print("\n📝 Generating script...")
@@ -148,7 +145,7 @@ def create_video(topic, style="viral", fmt="16:9", voice="af_nicole", clone_voic
 
     # 2. Generate voiceover
     print("\n🎙️ Generating voiceover...")
-    voiceover = generate_voiceover(scenes, voice)
+    voiceover = generate_voiceover(scenes, voice, clone_ref=clone_voice, engine=engine, speed=speed)
     if voiceover:
         print(f"   ✅ Voiceover: {voiceover}")
     else:
@@ -176,8 +173,10 @@ def main():
     p_create.add_argument("topic", help="Video topic")
     p_create.add_argument("--style", "-s", default="product", choices=STYLES, help="Video style")
     p_create.add_argument("--format", "-f", default="16:9", choices=FORMATS.keys(), help="Video format")
-    p_create.add_argument("--voice", "-v", default="af_nicole", choices=VOICE_MAP.keys(), help="Voice preset")
+    p_create.add_argument("--voice", "-v", default="af_nicole", help="Voice preset")
     p_create.add_argument("--clone-voice", help="Reference audio for voice cloning")
+    p_create.add_argument("--engine", "-e", default="auto", choices=ENGINES, help="TTS engine (auto/voicebox/kokoro/edge)")
+    p_create.add_argument("--speed", type=float, default=1.0, help="Speech speed (1.0 = normal)")
     p_create.add_argument("--output", "-o", help="Output file path")
 
     # Serve
@@ -188,10 +187,14 @@ def main():
     p_batch.add_argument("file", help="File with one topic per line")
     p_batch.add_argument("--style", "-s", default="product", choices=STYLES)
     p_batch.add_argument("--format", "-f", default="16:9", choices=FORMATS.keys())
-    p_batch.add_argument("--voice", "-v", default="af_nicole", choices=VOICE_MAP.keys())
+    p_batch.add_argument("--voice", "-v", default="af_nicole", help="Voice preset")
+    p_batch.add_argument("--engine", "-e", default="auto", choices=ENGINES, help="TTS engine")
 
     # Voices
     sub.add_parser("voices", help="List available voice presets")
+
+    # Engines
+    sub.add_parser("engines", help="List available TTS engines")
 
     args = parser.parse_args()
 
@@ -201,13 +204,27 @@ def main():
 
     if args.command == "voices":
         print("🎙️ Available Voice Presets:\n")
-        for preset, edge in VOICE_MAP.items():
-            label = preset.replace("_", " ").title()
-            print(f"  {preset:15} → {edge} ({label})")
+        voices = list_voices()
+        for name, engines in voices.items():
+            label = name.replace("_", " ").title()
+            engine_str = " | ".join(f"{k}: {v}" for k, v in engines.items())
+            print(f"  {name:15} → {label} ({engine_str})")
+        return
+
+    if args.command == "engines":
+        print("🎙️ Available TTS Engines:\n")
+        print(f"  voicebox  → {'✅ Available' if is_voicebox_available() else '❌ Not found'}")
+        try:
+            import kokoro
+            print("  kokoro    → ✅ Available")
+        except ImportError:
+            print("  kokoro    → ❌ Not installed")
+        print("  edge      → ✅ Always available (Edge-TTS)")
+        print("\n  Use --engine auto to select best available")
         return
 
     if args.command == "create":
-        create_video(args.topic, args.style, args.format, args.voice, args.clone_voice)
+        create_video(args.topic, args.style, args.format, args.voice, args.clone_voice, args.engine, args.speed)
 
     elif args.command == "serve":
         serve()
@@ -218,7 +235,7 @@ def main():
         print(f"🎬 Batch: {len(topics)} videos")
         for i, topic in enumerate(topics):
             print(f"\n--- Video {i+1}/{len(topics)}: {topic} ---")
-            create_video(topic, args.style, args.format, args.voice)
+            create_video(topic, args.style, args.format, args.voice, engine=args.engine)
 
 
 if __name__ == "__main__":
