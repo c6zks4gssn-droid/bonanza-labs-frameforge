@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-🎬 FrameForge Pro — AI Video Studio
+🎬 FrameForge Pro v0.2.0 — AI Video Studio
 Script → Voice (VibeVoice) → Video (Remotion)
 
 Usage:
@@ -18,7 +18,8 @@ import sys
 import time
 from pathlib import Path
 
-from frameforge.voicebox import generate_voiceover as vb_generate_voiceover, is_voicebox_available, list_voices
+# voicebox imported lazily in functions
+# manim_renderer imported lazily
 
 WORKSPACE = Path.home() / ".openclaw/workspace"
 REMONDIR = WORKSPACE / "frameforge-remotion"
@@ -29,7 +30,7 @@ VOICE_DIR.mkdir(parents=True, exist_ok=True)
 
 STYLES = ["viral", "corporate", "product", "explainer"]
 FORMATS = {"16:9": (1920, 1080), "9:16": (1080, 1920), "1:1": (1080, 1080)}
-ENGINES = ["auto", "voicebox", "kokoro", "edge"]
+ENGINES = ["auto", "voicebox", "kokoro", "edge", "manim"]
 
 
 def run(cmd, timeout=300):
@@ -57,6 +58,7 @@ def generate_script(topic, style="viral"):
 
 
 def generate_voiceover(scenes, voice_preset="af_nicole", output_path=None, clone_ref=None, engine="auto", speed=1.0):
+    from frameforge.voicebox import generate_voiceover as vb_generate_voiceover, is_voicebox_available, list_voices
     """Generate voiceover using Voicebox/Kokoro with Edge-TTS fallback."""
     if not output_path:
         output_path = str(VOICE_DIR / f"voiceover_{int(time.time())}.mp3")
@@ -153,7 +155,7 @@ def create_video(topic, style="viral", fmt="16:9", voice="af_nicole", clone_voic
 
     # 3. Render video
     print("\n🎬 Rendering video...")
-    result = render_remotion(scenes, style, fmt, voiceover)
+    result = render_video(scenes, style, fmt, voiceover)
     return result
 
 
@@ -165,7 +167,7 @@ def serve():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="🎬 FrameForge Pro — AI Video Studio")
+    parser = argparse.ArgumentParser(description="🎬 FrameForge Pro v0.2.0 — AI Video Studio")
     sub = parser.add_subparsers(dest="command")
 
     # Create
@@ -240,3 +242,13 @@ def main():
 
 if __name__ == "__main__":
     main()
+def render_video(scenes, style="product", fmt="16:9", voiceover_path=None, output_path=None):
+    from frameforge.manim_renderer import render_manim
+    """Render video — tries Manim first, falls back to Remotion."""
+    # Try Manim (no Node.js needed)
+    result = render_manim(scenes, style, output_path)
+    if result:
+        return result
+    
+    # Fall back to Remotion
+    return render_remotion(scenes, style, fmt, voiceover_path, output_path)
